@@ -96,7 +96,10 @@ func (githubapi *GitHubAPI) GetPullRequestList(owner string, repo string, token 
 			number := int(v.(map[string]interface{})["number"].(float64))
 			log.Print(fmt.Sprintf("Found open pull request %d in repo %s/%s", number, owner, repo))
 			branch := v.(map[string]interface{})["head"].(map[string]interface{})["ref"].(string)
-			body := v.(map[string]interface{})["body"].(string)
+			body := ""
+			if v.(map[string]interface{})["body"] != nil {
+				body = v.(map[string]interface{})["body"].(string)
+			}
 
 			dependsOn := githubapi.getDependsOnLinesFromBody(body)
 

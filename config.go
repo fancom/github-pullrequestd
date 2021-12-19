@@ -8,8 +8,10 @@ import (
 type Config struct {
 	Version              string                `json:"version"`
 	Port                 string                `json:"port"`
-	Secret               string                `json:"secret";omitempty`
-	Token                string                `json:"token";omitempty`
+	Secret               string                `json:"incoming_webhook_secret";omitempty`
+	Token                string                `json:"outgoing_github_token";omitempty`
+	APITokenValue        string                `json:"incoming_api_token_value";omitempty`
+	APITokenHeader       string                `json:"incoming_api_token_header";omitempty`
 	PullRequestDependsOn *PullRequestDependsOn `json:"pull_request_depends_on";omitempty`
 }
 

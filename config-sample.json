@@ -1,8 +1,10 @@
 {
   "version": "1",
   "port": "32223",
-  "secret": "GITHUB_SECRET",
-  "token": "GITHUB_TOKEN",
+  "incoming_webhook_secret": "GITHUB_SECRET",
+  "outgoing_github_token": "GITHUB_TOKEN",
+  "incoming_api_token_value": "TOKEN_FOR_THE_API",
+  "incoming_api_token_header": "X-PullRequestD-Token",
   "pull_request_depends_on": {
     "owner": "owner1",
     "organization": true,

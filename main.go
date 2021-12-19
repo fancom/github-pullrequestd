@@ -47,6 +47,11 @@ func (app *App) setCacheDependencies(repo string, num int, deps []string) {
 		app.cache.Dependencies[repo] = map[int]map[string]int{}
 	}
 
+	//if len(deps) == 0 {
+	//	app.removeCacheDependencies(repo, num)
+	//	return
+	//} 
+
 	app.cache.Dependencies[repo][num] = map[string]int{}
 
 	if len(deps) > 0 {
@@ -181,6 +186,13 @@ func (app *App) apiHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) apiHandlerGet(w http.ResponseWriter, r *http.Request) {
+	if app.cfg.APITokenHeader != "" && app.cfg.APITokenValue != "" {
+		if r.Header.Get(app.cfg.APITokenHeader) != app.cfg.APITokenValue {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	}
+
 	b, err := json.Marshal(app.cache)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
