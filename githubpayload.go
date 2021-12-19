@@ -116,10 +116,8 @@ func (githubPayload *GitHubPayload) GetPullRequestBody(j map[string]interface{})
 	return ""
 }
 func (githubPayload *GitHubPayload) GetPullRequestNumber(j map[string]interface{}) float64 {
-	if j["pull_request"] != nil {
-		if j["pull_request"].(map[string]interface{})["number"] != nil {
-			return j["pull_request"].(map[string]interface{})["number"].(float64)
-		}
+	if j["number"] != nil {
+		return j["number"].(float64)
 	}
 	return 0
 }

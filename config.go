@@ -6,10 +6,10 @@ import (
 )
 
 type Config struct {
-	Version  string       `json:"version"`
-	Port     string       `json:"port"`
-	Secret   string       `json:"secret";omitempty`
-	Token    string       `json:"token";omitempty`
+	Version              string                `json:"version"`
+	Port                 string                `json:"port"`
+	Secret               string                `json:"secret";omitempty`
+	Token                string                `json:"token";omitempty`
 	PullRequestDependsOn *PullRequestDependsOn `json:"pull_request_depends_on";omitempty`
 }
 
@@ -21,13 +21,13 @@ func (c *Config) SetFromJSON(b []byte) {
 }
 
 type PullRequestDependsOn struct {
-	Owner string `json:"owner"`
-	Organization bool `json:"organization";omit_empty`
-	Repositories *([]DependsOnConditionRepository) `json:"repositories";omitempty`
+	Owner               string                            `json:"owner"`
+	Organization        bool                              `json:"organization";omit_empty`
+	Repositories        *([]DependsOnConditionRepository) `json:"repositories";omitempty`
 	ExcludeRepositories *([]DependsOnConditionRepository) `json:"exclude_repositories";omitempty`
 }
 
 type DependsOnConditionRepository struct {
-	Name string `json:"name"`
-	RegExp bool `json:"regexp";omit_empty`
+	Name   string `json:"name"`
+	RegExp bool   `json:"regexp";omit_empty`
 }
