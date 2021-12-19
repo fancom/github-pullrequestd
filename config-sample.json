@@ -1,0 +1,20 @@
+{
+  "version": "1",
+  "port": "32223",
+  "secret": "GITHUB_SECRET",
+  "token": "GITHUB_TOKEN",
+  "pull_request_depends_on": {
+    "owner": "owner1",
+    "organization": true,
+    "repositories": [
+      {
+        "name": "^repoprefix-.*$", "regexp": true
+      }
+    ],
+    "exclude_repositories": [
+      {
+        "name": "repoprefix-workspace", "regexp": false
+      }
+    ]
+  }
+}
