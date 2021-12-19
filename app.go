@@ -185,9 +185,9 @@ func (app *App) apiHandlerPost(w http.ResponseWriter, r *http.Request) {
 	signature := app.githubPayload.GetSignature(r)
 	if app.cfg.Secret != "" {
 		if !app.githubPayload.VerifySignature([]byte(app.cfg.Secret), signature, &b) {
-			//http.Error(w, "Signature verification failed", 401)
-			//return
-			log.Print("Signature verification failed - oh well")
+			http.Error(w, "Signature verification failed", 401)
+			return
+			// log.Print("Signature verification failed - oh well")
 		}
 	}
 
