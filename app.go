@@ -278,13 +278,8 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 		return nil
 	}
 
-	if action == "opened" || action == "reopened" {
+	if action == "opened" || action == "reopened" || action == "edited" {
 		app.wg.Add(1)
-		go app.updateCache(CacheAddBranch, repo, number, branch, []string{})
-		app.wg.Wait()
-	} else if action == "edited" {
-		app.wg.Add(2)
-		go app.updateCache(CacheRemoveBranch, repo, number, "", []string{})
 		go app.updateCache(CacheAddBranch, repo, number, branch, []string{})
 		app.wg.Wait()
 	} else if action == "closed" {
