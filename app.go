@@ -153,7 +153,7 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 		log.Print(pullRequests)
 
 		for _, pr := range pullRequests {
-			app.wg.Add(2)
+			app.wg.Add(3)
 			go app.updateCache(CacheAddBranch, pr.Repository, pr.Number, pr.Branch, []string{})
 			go app.updateCache(CacheSetDependencies, pr.Repository, pr.Number, "", pr.DependsOn)
 			go app.updateCache(CacheSetDependents, pr.Repository, pr.Number, "", pr.DependsOn)
