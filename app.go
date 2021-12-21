@@ -156,6 +156,7 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 			app.wg.Add(2)
 			go app.updateCache(CacheAddBranch, pr.Repository, pr.Number, pr.Branch, []string{})
 			go app.updateCache(CacheSetDependencies, pr.Repository, pr.Number, "", pr.DependsOn)
+			go app.updateCache(CacheSetDependents, pr.Repository, pr.Number, "", pr.DependsOn)
 			app.wg.Wait()
 		}
 	}
@@ -349,6 +350,7 @@ func (app *App) Run() {
 	app.cache = Cache{
 		Branches:     map[string]map[int]string{},
 		Dependencies: map[string]map[int]map[string]int{},
+		Dependents:   map[string]map[int]map[string]int{},
 		Version:      "1",
 	}
 	os.Exit(app.cli.Run(os.Stdout, os.Stderr))
