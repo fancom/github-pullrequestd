@@ -29,6 +29,8 @@ var CacheAddBranch = 1
 var CacheRemoveBranch = 2
 var CacheSetDependencies = 3
 var CacheRemoveDependencies = 4
+var CacheRemoveDependents = 5
+var CacheSetDependents = 6
 
 func (app *App) updateCache(action int, repo string, num int, branch string, deps []string) {
 	app.cache.mu.Lock()
@@ -70,6 +72,24 @@ func (app *App) updateCache(action int, repo string, num int, branch string, dep
 				}
 			}
 		}
+	} else if action == CacheSetDependents {
+		if len(deps) > 0 {
+			for _, dep := range deps {
+				vals := strings.Split(dep, "#")
+				i, err := strconv.Atoi(vals[1])
+				if err == nil {
+					_, hasKey := app.cache.Dependents[vals[0]]
+					if !hasKey {
+						app.cache.Dependents[vals[0]] = map[int]map[string]int{}
+					}
+					_, hasKey = app.cache.Dependents[vals[0]][i]
+					if !hasKey {
+						app.cache.Dependents[vals[0]][i] = map[string]int{}
+					}
+					app.cache.Dependents[vals[0]][i][repo] = num
+				}
+			}
+		}
 	} else if action == CacheRemoveDependencies {
 		_, hasKey := app.cache.Dependencies[repo]
 		if !hasKey {
@@ -82,6 +102,18 @@ func (app *App) updateCache(action int, repo string, num int, branch string, dep
 		}
 
 		delete(app.cache.Dependencies[repo], num)
+	} else if action == CacheRemoveDependents {
+		_, hasKey := app.cache.Dependents[repo]
+		if !hasKey {
+			return
+		}
+
+		_, hasKey = app.cache.Dependents[repo][num]
+		if !hasKey {
+			return
+		}
+
+		delete(app.cache.Dependents[repo], num)
 	}
 }
 
@@ -283,9 +315,10 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 		go app.updateCache(CacheAddBranch, repo, number, branch, []string{})
 		app.wg.Wait()
 	} else if action == "closed" {
-		app.wg.Add(2)
+		app.wg.Add(3)
 		go app.updateCache(CacheRemoveBranch, repo, number, "", []string{})
 		go app.updateCache(CacheRemoveDependencies, repo, number, "", []string{})
+		go app.updateCache(CacheRemoveDependents, repo, number, "", []string{})
 		app.wg.Wait()
 		return nil
 	}
@@ -302,8 +335,9 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 	log.Print("Got payload with the following DependsOn:")
 	log.Print(dependsOn)
 
-	app.wg.Add(1)
+	app.wg.Add(2)
 	go app.updateCache(CacheSetDependencies, repo, number, "", dependsOn)
+	go app.updateCache(CacheSetDependents, repo, number, "", dependsOn)
 	app.wg.Wait()
 
 	return nil
