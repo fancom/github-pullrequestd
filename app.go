@@ -25,95 +25,91 @@ type App struct {
 	wg            sync.WaitGroup
 }
 
-var CacheAddBranch = 1
-var CacheRemoveBranch = 2
-var CacheSetDependencies = 3
-var CacheRemoveDependencies = 4
-var CacheRemoveDependents = 5
-var CacheSetDependents = 6
-
-func (app *App) updateCache(action int, repo string, num int, branch string, deps []string) {
+func (app *App) updateCache(action string, repo string, num int, branch string, deps []string) {
 	app.cache.mu.Lock()
 	defer app.wg.Done()
 	defer app.cache.mu.Unlock()
 
-	if action == CacheAddBranch {
+	if action == "opened" || action == "edited" || action == "reopened" {
+		// set PR in Branches
 		_, hasKey := app.cache.Branches[repo]
 		if !hasKey {
 			app.cache.Branches[repo] = map[int]string{}
 		}
 		app.cache.Branches[repo][num] = branch
-	} else if action == CacheRemoveBranch {
-		delete(app.cache.Branches[repo], num)
-	} else if action == CacheSetDependencies {
-		_, hasKey := app.cache.Dependencies[repo]
+
+		_, hasKey = app.cache.Dependencies[repo]
 		if !hasKey {
 			app.cache.Dependencies[repo] = map[int]map[string]int{}
 		}
+		_, hasKey = app.cache.Dependencies[repo][num]
+		if !hasKey {
+			app.cache.Dependencies[repo][num] = map[string]int{}
+		}
+	}
 
-		//if len(deps) == 0 {
-		//	app.removeCacheDependencies(repo, num)
-		//	return
-		//}
+	if action == "closed" {
+		// unset PR from Branches
+		_, hasKey := app.cache.Branches[repo][num]
+		if hasKey {
+			delete(app.cache.Branches[repo], num)
+		}
+		// unset PR in Dependencies
+		_, hasKey = app.cache.Dependencies[repo][num]
+		if hasKey {
+			delete(app.cache.Dependencies[repo], num)
+		}
+		// unset PR in Dependents
+		_, hasKey = app.cache.Dependents[repo][num]
+		if hasKey {
+			delete(app.cache.Dependents[repo], num)
+		}
+	}
 
-		app.cache.Dependencies[repo][num] = map[string]int{}
-
-		if len(deps) > 0 {
-			for _, dep := range deps {
-				_, hasKey = app.cache.Dependencies[repo][num]
-				if !hasKey {
-					app.cache.Dependencies[repo][num] = map[string]int{}
-				}
-
-				vals := strings.Split(dep, "#")
-				i, err := strconv.Atoi(vals[1])
-				if err == nil {
-					app.cache.Dependencies[repo][num][vals[0]] = i
+	// tiny tidy up step - loop through dependents again and remove all non-existing
+	for _, dep := range deps {
+		vals := strings.Split(dep, "#")
+		i, err := strconv.Atoi(vals[1])
+		if err == nil {
+			if action == "closed" {
+				// unset Dependent-PR connection if it exists
+				_, hasKey1 := app.cache.Dependents[vals[0]][i][repo]
+				if hasKey1 {
+					if app.cache.Dependents[vals[0]][i][repo] == num {
+						delete(app.cache.Dependents[vals[0]][i], repo)
+					}
 				}
 			}
-		}
-	} else if action == CacheSetDependents {
-		if len(deps) > 0 {
-			for _, dep := range deps {
-				vals := strings.Split(dep, "#")
-				i, err := strconv.Atoi(vals[1])
-				if err == nil {
-					_, hasKey := app.cache.Dependents[vals[0]]
-					if !hasKey {
+
+			_, hasKey := app.cache.Branches[vals[0]][i]
+			if !hasKey {
+				// tidy up - remove entries for non-existing PR
+				_, hasKey2 := app.cache.Dependencies[vals[0]][i]
+				if hasKey2 {
+					delete(app.cache.Dependencies[vals[0]], i)
+				}
+				_, hasKey2 = app.cache.Dependents[vals[0]][i]
+				if hasKey2 {
+					delete(app.cache.Dependencies[vals[0]], i)
+				}
+			} else {
+				// set PR in Dependencies and Dependents
+				if action == "opened" || action == "edited" || action == "reopened" {
+					app.cache.Dependencies[repo][num][vals[0]] = i
+
+					// set dependency PR in Dependents
+					_, hasKey2 := app.cache.Dependents[vals[0]]
+					if !hasKey2 {
 						app.cache.Dependents[vals[0]] = map[int]map[string]int{}
 					}
-					_, hasKey = app.cache.Dependents[vals[0]][i]
-					if !hasKey {
+					_, hasKey2 = app.cache.Dependents[vals[0]][i]
+					if !hasKey2 {
 						app.cache.Dependents[vals[0]][i] = map[string]int{}
 					}
 					app.cache.Dependents[vals[0]][i][repo] = num
 				}
 			}
 		}
-	} else if action == CacheRemoveDependencies {
-		_, hasKey := app.cache.Dependencies[repo]
-		if !hasKey {
-			return
-		}
-
-		_, hasKey = app.cache.Dependencies[repo][num]
-		if !hasKey {
-			return
-		}
-
-		delete(app.cache.Dependencies[repo], num)
-	} else if action == CacheRemoveDependents {
-		_, hasKey := app.cache.Dependents[repo]
-		if !hasKey {
-			return
-		}
-
-		_, hasKey = app.cache.Dependents[repo][num]
-		if !hasKey {
-			return
-		}
-
-		delete(app.cache.Dependents[repo], num)
 	}
 }
 
@@ -153,10 +149,8 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 		log.Print(pullRequests)
 
 		for _, pr := range pullRequests {
-			app.wg.Add(3)
-			go app.updateCache(CacheAddBranch, pr.Repository, pr.Number, pr.Branch, []string{})
-			go app.updateCache(CacheSetDependencies, pr.Repository, pr.Number, "", pr.DependsOn)
-			go app.updateCache(CacheSetDependents, pr.Repository, pr.Number, "", pr.DependsOn)
+			app.wg.Add(1)
+			go app.updateCache("opened", pr.Repository, pr.Number, pr.Branch, pr.DependsOn)
 			app.wg.Wait()
 		}
 	}
@@ -311,19 +305,6 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 		return nil
 	}
 
-	if action == "opened" || action == "reopened" || action == "edited" {
-		app.wg.Add(1)
-		go app.updateCache(CacheAddBranch, repo, number, branch, []string{})
-		app.wg.Wait()
-	} else if action == "closed" {
-		app.wg.Add(3)
-		go app.updateCache(CacheRemoveBranch, repo, number, "", []string{})
-		go app.updateCache(CacheRemoveDependencies, repo, number, "", []string{})
-		go app.updateCache(CacheRemoveDependents, repo, number, "", []string{})
-		app.wg.Wait()
-		return nil
-	}
-
 	dependsOn := []string{}
 	lines := strings.Split(body, "\r\n")
 	for _, line := range lines {
@@ -336,9 +317,8 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 	log.Print("Got payload with the following DependsOn:")
 	log.Print(dependsOn)
 
-	app.wg.Add(2)
-	go app.updateCache(CacheSetDependencies, repo, number, "", dependsOn)
-	go app.updateCache(CacheSetDependents, repo, number, "", dependsOn)
+	app.wg.Add(1)
+	go app.updateCache(action, repo, number, branch, dependsOn)
 	app.wg.Wait()
 
 	return nil
