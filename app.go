@@ -25,7 +25,7 @@ type App struct {
 	wg            sync.WaitGroup
 }
 
-func (app *App) updateCache(action string, repo string, num int, branch string, deps []string) {
+func (app *App) updateCache(action string, repo string, num int, branch string, deps []string, branchesOnly bool) {
 	app.cache.mu.Lock()
 	defer app.wg.Done()
 	defer app.cache.mu.Unlock()
@@ -37,6 +37,10 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 			app.cache.Branches[repo] = map[int]string{}
 		}
 		app.cache.Branches[repo][num] = branch
+
+		if branchesOnly {
+			return
+		}
 
 		_, hasKey = app.cache.Dependencies[repo]
 		if !hasKey {
@@ -54,6 +58,11 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 		if hasKey {
 			delete(app.cache.Branches[repo], num)
 		}
+
+		if branchesOnly {
+			return
+		}
+
 		// unset PR in Dependencies
 		_, hasKey = app.cache.Dependencies[repo][num]
 		if hasKey {
@@ -64,6 +73,10 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 		if hasKey {
 			delete(app.cache.Dependents[repo], num)
 		}
+	}
+
+	if branchesOnly {
+		return
 	}
 
 	// tiny tidy up step - loop through dependents again and remove all non-existing
@@ -150,7 +163,7 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 
 		for _, pr := range pullRequests {
 			app.wg.Add(1)
-			go app.updateCache("opened", pr.Repository, pr.Number, pr.Branch, pr.DependsOn)
+			go app.updateCache("opened", pr.Repository, pr.Number, pr.Branch, pr.DependsOn, true)
 			app.wg.Wait()
 		}
 	}
@@ -318,7 +331,7 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 	log.Print(dependsOn)
 
 	app.wg.Add(1)
-	go app.updateCache(action, repo, number, branch, dependsOn)
+	go app.updateCache(action, repo, number, branch, dependsOn, false)
 	app.wg.Wait()
 
 	return nil
