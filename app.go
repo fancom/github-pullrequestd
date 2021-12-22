@@ -152,7 +152,7 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 	log.Print("The following repositories match rules in the config file:")
 	log.Print(filteredRepos)
 
-	// Nasty loop in a loop but this is executed just once when app is initialized
+	// Nasty loop in a loop but this is executed just twice when app is initialized
 	for _, repo := range filteredRepos {
 		pullRequests, err := app.githubAPI.GetPullRequestList(app.cfg.PullRequestDependsOn.Owner, repo, app.cfg.Token)
 		if err != nil {
@@ -164,6 +164,20 @@ func (app *App) startHandler(cli *gocli.CLI) int {
 		for _, pr := range pullRequests {
 			app.wg.Add(1)
 			go app.updateCache("opened", pr.Repository, pr.Number, pr.Branch, pr.DependsOn, true)
+			app.wg.Wait()
+		}
+	}
+
+	// again same loop - sorry, dependencies have to be added once all PRs are available
+	for _, repo := range filteredRepos {
+		pullRequests, err := app.githubAPI.GetPullRequestList(app.cfg.PullRequestDependsOn.Owner, repo, app.cfg.Token)
+		if err != nil {
+			log.Fatal(fmt.Sprintf("Error fetching pull requests for %s", app.cfg.PullRequestDependsOn.Owner))
+		}
+
+		for _, pr := range pullRequests {
+			app.wg.Add(1)
+			go app.updateCache("opened", pr.Repository, pr.Number, pr.Branch, pr.DependsOn, false)
 			app.wg.Wait()
 		}
 	}
