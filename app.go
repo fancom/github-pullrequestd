@@ -101,24 +101,12 @@ func (app *App) triggerPRJob(repo string, num int) {
 	}
 }
 
-func (app *App) updateCache(action string, repo string, num int, branch string, deps []string, branchesOnly bool) {
+func (app *App) updateCache(action string, repo string, num int, branch string, depsAfter []string, branchesOnly bool) {
 	app.cache.mu.Lock()
 	defer app.wg.Done()
 	defer app.cache.mu.Unlock()
 
-	depsBefore := map[string]int{}
-	if action == "edited" {
-		_, hasKey := app.cache.Dependencies[repo]
-		if hasKey {
-			_, hasKey2 := app.cache.Dependencies[repo][num]
-			if hasKey2 {
-				for r, n := range app.cache.Dependencies[repo][num] {
-					depsBefore[r] = n
-				}
-			}
-		}
-	}
-
+	// branches only
 	if action == "opened" || action == "edited" || action == "reopened" {
 		// set PR in Branches
 		_, hasKey := app.cache.Branches[repo]
@@ -126,19 +114,6 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 			app.cache.Branches[repo] = map[int]string{}
 		}
 		app.cache.Branches[repo][num] = branch
-
-		if branchesOnly {
-			return
-		}
-
-		_, hasKey = app.cache.Dependencies[repo]
-		if !hasKey {
-			app.cache.Dependencies[repo] = map[int]map[string]int{}
-		}
-		_, hasKey = app.cache.Dependencies[repo][num]
-		if !hasKey {
-			app.cache.Dependencies[repo][num] = map[string]int{}
-		}
 	}
 
 	if action == "closed" {
@@ -147,11 +122,93 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 		if hasKey {
 			delete(app.cache.Branches[repo], num)
 		}
+	}
 
-		if branchesOnly {
-			return
+	if branchesOnly {
+		return
+	}
+
+	// dependencies and tidying up
+	// TODO: this can be refactored as it became quite messy...
+	depsBefore := map[string]int{}
+	_, hasKey := app.cache.Dependencies[repo]
+	if hasKey {
+		_, hasKey2 := app.cache.Dependencies[repo][num]
+		if hasKey2 {
+			for r, n := range app.cache.Dependencies[repo][num] {
+				depsBefore[r] = n
+			}
+		}
+	}
+
+	if action == "opened" || action == "edited" || action == "reopened" {
+		_, hasKey = app.cache.Dependencies[repo]
+		if !hasKey {
+			app.cache.Dependencies[repo] = map[int]map[string]int{}
 		}
 
+		// dependencies are added in the 'tidy' loop
+		app.cache.Dependencies[repo][num] = map[string]int{}
+
+		// clean dependents as these are set in the 'tidy' loop
+		for r, n := range depsBefore {
+			_, hasKey := app.cache.Dependents[r][n][repo]
+			if hasKey {
+				delete(app.cache.Dependents[r][n], repo)
+			}
+			// tidy up: if dependency branch does not exist then tidy it up as well
+			_, hasKey = app.cache.Branches[r][n]
+			if !hasKey {
+				// tidy up - remove entries for non-existing PR
+				_, hasKey2 := app.cache.Dependencies[r][n]
+				if hasKey2 {
+					delete(app.cache.Dependencies[r], n)
+				}
+				_, hasKey2 = app.cache.Dependents[r][n]
+				if hasKey2 {
+					delete(app.cache.Dependents[r], n)
+				}
+			}
+		}
+
+		// add new dependencies
+		for _, dep := range depsAfter {
+			vals := strings.Split(dep, "#")
+			i, err := strconv.Atoi(vals[1])
+			if err == nil {
+				_, hasKey := app.cache.Branches[vals[0]][i]
+				if !hasKey {
+					// tidy up - remove entries for non-existing PR
+					_, hasKey2 := app.cache.Dependencies[vals[0]][i]
+					if hasKey2 {
+						delete(app.cache.Dependencies[vals[0]], i)
+					}
+					_, hasKey2 = app.cache.Dependents[vals[0]][i]
+					if hasKey2 {
+						delete(app.cache.Dependents[vals[0]], i)
+					}
+				} else {
+					// set PR in Dependencies and Dependents
+					if action == "opened" || action == "edited" || action == "reopened" {
+						app.cache.Dependencies[repo][num][vals[0]] = i
+	
+						// set dependency PR in Dependents
+						_, hasKey2 := app.cache.Dependents[vals[0]]
+						if !hasKey2 {
+							app.cache.Dependents[vals[0]] = map[int]map[string]int{}
+						}
+						_, hasKey2 = app.cache.Dependents[vals[0]][i]
+						if !hasKey2 {
+							app.cache.Dependents[vals[0]][i] = map[string]int{}
+						}
+						app.cache.Dependents[vals[0]][i][repo] = num
+					}
+				}
+			}
+		}
+	}
+
+	if action == "closed" {
 		// unset PR in Dependencies
 		_, hasKey = app.cache.Dependencies[repo][num]
 		if hasKey {
@@ -162,53 +219,29 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 		if hasKey {
 			delete(app.cache.Dependents[repo], num)
 		}
-	}
-
-	if branchesOnly {
-		return
-	}
-
-	// tiny tidy up step - loop through dependents again and remove all non-existing
-	for _, dep := range deps {
-		vals := strings.Split(dep, "#")
-		i, err := strconv.Atoi(vals[1])
-		if err == nil {
-			if action == "closed" {
-				// unset Dependent-PR connection if it exists
+		// unset Dependent-PR connection if it exists
+		for _, dep := range depsAfter {
+			vals := strings.Split(dep, "#")
+			i, err := strconv.Atoi(vals[1])
+			if err == nil {
 				_, hasKey1 := app.cache.Dependents[vals[0]][i][repo]
 				if hasKey1 {
 					if app.cache.Dependents[vals[0]][i][repo] == num {
 						delete(app.cache.Dependents[vals[0]][i], repo)
 					}
 				}
-			}
-
-			_, hasKey := app.cache.Branches[vals[0]][i]
-			if !hasKey {
-				// tidy up - remove entries for non-existing PR
-				_, hasKey2 := app.cache.Dependencies[vals[0]][i]
-				if hasKey2 {
-					delete(app.cache.Dependencies[vals[0]], i)
-				}
-				_, hasKey2 = app.cache.Dependents[vals[0]][i]
-				if hasKey2 {
-					delete(app.cache.Dependencies[vals[0]], i)
-				}
-			} else {
-				// set PR in Dependencies and Dependents
-				if action == "opened" || action == "edited" || action == "reopened" {
-					app.cache.Dependencies[repo][num][vals[0]] = i
-
-					// set dependency PR in Dependents
-					_, hasKey2 := app.cache.Dependents[vals[0]]
-					if !hasKey2 {
-						app.cache.Dependents[vals[0]] = map[int]map[string]int{}
+				// additionally remove non-existing PRs as well
+				_, hasKey := app.cache.Branches[vals[0]][i]
+				if !hasKey {
+					// tidy up - remove entries for non-existing PR
+					_, hasKey2 := app.cache.Dependencies[vals[0]][i]
+					if hasKey2 {
+						delete(app.cache.Dependencies[vals[0]], i)
 					}
 					_, hasKey2 = app.cache.Dependents[vals[0]][i]
-					if !hasKey2 {
-						app.cache.Dependents[vals[0]][i] = map[string]int{}
+					if hasKey2 {
+						delete(app.cache.Dependents[vals[0]], i)
 					}
-					app.cache.Dependents[vals[0]][i][repo] = num
 				}
 			}
 		}
