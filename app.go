@@ -14,21 +14,110 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+	"reflect"
 )
 
 type App struct {
 	cfg           Config
 	githubPayload *GitHubPayload
 	githubAPI     *GitHubAPI
+	jenkinsAPI    *JenkinsAPI
 	cli           *gocli.CLI
 	cache         Cache
 	wg            sync.WaitGroup
+}
+
+func (app *App) printIteration(i int, rc int) {
+	log.Print("Retry: (" + strconv.Itoa(i+1) + "/" + strconv.Itoa(rc) + ")")
+}
+
+func (app *App) getCrumbAndSleep(u string, t string, rd int) (string, error) {
+	crumb, err := app.jenkinsAPI.GetCrumb(app.cfg.Jenkins.BaseURL, u, t)
+	if err != nil {
+		log.Print("Error getting crumb")
+		time.Sleep(time.Second * time.Duration(rd))
+		return "", errors.New("Error getting crumb")
+	}
+	return crumb, nil
+}
+
+func (app *App) replacePathWithRepoAndNum(p string, r string, n int) string {
+	s := strings.ReplaceAll(p, "{{.repository}}", r)
+	s = strings.ReplaceAll(s, "{{.number}}", fmt.Sprintf("%d", n))
+	return s
+}
+
+func (app *App) processJenkinsEndpointRetries(endpointDef *JenkinsEndpoint, repo string, num int, retryDelay int, retryCount int) error {
+	iterations := int(0)
+	if retryCount > 0 {
+		for iterations < retryCount {
+			app.printIteration(iterations, retryCount)
+
+			crumb, err := app.getCrumbAndSleep(app.cfg.Jenkins.User, app.cfg.Jenkins.Token, retryDelay)
+			if err != nil {
+				iterations++
+				continue
+			}
+
+			endpointPath := app.replacePathWithRepoAndNum(endpointDef.Path, repo, num)
+
+			resp, err := app.jenkinsAPI.Post(app.cfg.Jenkins.BaseURL+"/"+endpointPath, app.cfg.Jenkins.User, app.cfg.Jenkins.Token, crumb)
+			if err != nil {
+				log.Print("Error from request to " + endpointPath)
+				time.Sleep(time.Second * time.Duration(retryDelay))
+				iterations++
+				continue
+			}
+
+			log.Print("Posted to endpoint " + endpointPath)
+
+			if !endpointDef.CheckHTTPStatus(resp.StatusCode) {
+				rs := strconv.Itoa(resp.StatusCode)
+				log.Print("HTTP Status " + rs + " different than expected ")
+				time.Sleep(time.Second * time.Duration(retryDelay))
+				iterations++
+				continue
+			}
+
+			return nil
+		}
+	}
+	return errors.New("Unable to post to endpoint " + endpointDef.Path)
+}
+
+func (app *App) triggerPRJob(repo string, num int) {
+	log.Print(app.cfg)
+	for _, endp := range app.cfg.Jenkins.Endpoints {
+		rd, err := endp.GetRetryDelay()
+		if err != nil {
+			break
+		}
+		rc, err := endp.GetRetryCount()
+		if err != nil {
+			break
+		}
+		app.processJenkinsEndpointRetries(&endp, repo, num, rd, rc)
+	}
 }
 
 func (app *App) updateCache(action string, repo string, num int, branch string, deps []string, branchesOnly bool) {
 	app.cache.mu.Lock()
 	defer app.wg.Done()
 	defer app.cache.mu.Unlock()
+
+	depsBefore := map[string]int{}
+	if action == "edited" {
+		_, hasKey := app.cache.Dependencies[repo]
+		if hasKey {
+			_, hasKey2 := app.cache.Dependencies[repo][num]
+			if hasKey2 {
+				for r, n := range app.cache.Dependencies[repo][num] {
+					depsBefore[r] = n
+				}
+			}
+		}
+	}
 
 	if action == "opened" || action == "edited" || action == "reopened" {
 		// set PR in Branches
@@ -122,6 +211,12 @@ func (app *App) updateCache(action string, repo string, num int, branch string, 
 					app.cache.Dependents[vals[0]][i][repo] = num
 				}
 			}
+		}
+	}
+
+	if action == "edited" {
+		if !reflect.DeepEqual(depsBefore, app.cache.Dependencies[repo][num]) {
+			app.triggerPRJob(repo, num)
 		}
 	}
 }
@@ -354,12 +449,14 @@ func (app *App) processPayloadOnPullRequestDependsOn(j map[string]interface{}, e
 func (app *App) Run() {
 	app.githubPayload = NewGitHubPayload()
 	app.githubAPI = NewGitHubAPI()
+	app.jenkinsAPI = NewJenkinsAPI()
 	app.cache = Cache{
 		Branches:     map[string]map[int]string{},
 		Dependencies: map[string]map[int]map[string]int{},
 		Dependents:   map[string]map[int]map[string]int{},
 		Version:      "1",
 	}
+
 	os.Exit(app.cli.Run(os.Stdout, os.Stderr))
 }
 

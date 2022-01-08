@@ -18,5 +18,34 @@
         "name": "repoprefix-workspace", "regexp": false
       }
     ]
+  },
+  "jenkins": {
+    "user": "USER",
+    "token": "TOKEN",
+    "base_url": "https://JENKINS_BASE_URL",
+    "endpoints": [
+      {
+        "id": "multibranch_pipeline_scan",
+        "path": "/job/{{.repository}}_multibranch/build",
+        "retry": {
+          "delay": "10",
+          "count": "5"
+        },
+        "success": {
+          "http_status": "200"
+        }
+      },
+      {
+        "id": "multibranch_pipeline_branch",
+        "path": "/job/{{.repository}}_multibranch/job/{{.branch}}/build",
+        "retry": {
+          "delay": "5",
+          "count": "3"
+        },
+        "success": {
+          "http_status": "201"
+        }
+      }
+    ]
   }
 }
